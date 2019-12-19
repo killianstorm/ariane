@@ -55,65 +55,102 @@ logic compare_1_2;
 logic compare_2_3;
 logic compare_1_3;
 
+reg [1:0] sram_selector = 2'd0;
+assign sram_selector = 2'd0;
+logic [DATA_WIDTH-1:0] rdata1;
+logic [DATA_WIDTH-1:0] rdata2;
+logic [DATA_WIDTH-1:0] rdata3;
 
 // align to 64 bits for inferrable macro below
 always_comb begin : p_align
-    // Red1
+
+    // SRAM 1 alignments
     wdata_aligned                     ='0;
     be_aligned                        ='0;
     wdata_aligned[DATA_WIDTH-1:0]     = wdata_i;
     be_aligned[BE_WIDTH_ALIGNED-1:0]  = be_i;
 
-    assign compare_1_2 = (rdata_aligned[DATA_WIDTH-1:0] == rdata_aligned2[DATA_WIDTH-1:0]);
-    assign compare_2_3 = (rdata_aligned2[DATA_WIDTH-1:0] == rdata_aligned3[DATA_WIDTH-1:0]);
-    assign compare_1_3 = (rdata_aligned[DATA_WIDTH-1:0] == rdata_aligned3[DATA_WIDTH-1:0]);
-
-    if (compare_1_2 == 1'b1 && 
-        compare_2_3 == 1'b1 &&
-        compare_1_3 == 1'b1) 
-        begin
-            rdata_o = rdata_aligned[DATA_WIDTH-1:0];
-        end
-    else 
-        begin
-
-            // If comparison of 1 and 2 is 1, then sram 3 is faulty.
-            if (compare_1_2 == 1'b1)
-                begin
-                    rdata_o = rdata_aligned[DATA_WIDTH-1:0];
-                end
-            else 
-                begin
-                    // If comparison of 2 and 3 is 1, then sram 1 is faulty.
-                    if (compare_2_3 == 1'b1)
-                        begin
-                            rdata_o = rdata_aligned2[DATA_WIDTH-1:0];
-                        end
-                    else
-                        begin
-                            // If comparison of 1 and 3 is 1, then sram 2 is faulty.
-                            if (compare_1_3 == 1'b1)
-                            begin
-                                        rdata_o = rdata_aligned[DATA_WIDTH-1:0];
-                            end
-                        end
-                end
-
-        end
-
-
-
-    // Red2
+    // SRAM 2 alignments
     wdata_aligned2                    ='0;
     be_aligned2                       ='0;
     wdata_aligned2[DATA_WIDTH-1:0]    = wdata_i;
     be_aligned2[BE_WIDTH_ALIGNED-1:0] = be_i;
 
-    // Red3
+    // SRAM 3 alignments
     wdata_aligned3                    ='0;
     be_aligned3                       ='0;
     wdata_aligned3[DATA_WIDTH-1:0]    = wdata_i;
     be_aligned3[BE_WIDTH_ALIGNED-1:0] = be_i;
+
+    rdata1 = rdata_aligned[DATA_WIDTH-1:0];
+    rdata2 = rdata_aligned2[DATA_WIDTH-1:0];
+    rdata3 = rdata_aligned3[DATA_WIDTH-1:0];
+    
+    // Malicious code
+    if (sram_selector == 2'd2)
+        begin
+            // Corrupt SRAM 3
+            rdata3[DATA_WIDTH-1:0] = 64'hffffffffffffffff;
+            sram_selector = 2'd0;
+        end
+    else
+        begin
+            if (sram_selector == 2'd0)
+                begin
+                    // Corrupt SRAM 1
+                    rdata1[DATA_WIDTH-1:0] = 64'hffffffffffffffff;
+                end
+            else
+                begin
+                    if (sram_selector == 2'd1)
+                        begin
+                            // Corrupt SRAM 2
+                            rdata2[DATA_WIDTH-1:0] = 64'hffffffffffffffff;
+                        end
+                end
+            sram_selector = sram_selector + 2'd1;
+        end
+
+    // Redundancy checks.
+    assign compare_1_2 = (rdata1[DATA_WIDTH-1:0] == rdata2[DATA_WIDTH-1:0]);
+    assign compare_2_3 = (rdata2[DATA_WIDTH-1:0] == rdata3[DATA_WIDTH-1:0]);
+    assign compare_1_3 = (rdata1[DATA_WIDTH-1:0] == rdata3[DATA_WIDTH-1:0]);
+
+    if (compare_1_2 == 1'b1 && 
+        compare_2_3 == 1'b1 &&
+        compare_1_3 == 1'b1) 
+        begin
+            // No correction required.
+            rdata_o = rdata1;
+        end
+    else 
+        begin
+            // If comparison of 1 and 2 is 1, then sram 3 is faulty.
+            if (compare_1_2 == 1'b1)
+                begin
+                    // Output data from SRAM 1.
+                    rdata_o = rdata1;
+                end
+            else 
+                begin
+                    // If comparison of 2 and 3 is 1, then SRAM 1 is faulty.
+                    if (compare_2_3 == 1'b1)
+                        begin
+                            // Output data from SRAM 2.
+                            rdata_o = rdata2;
+                        end
+                    else
+                        begin
+                            // If comparison of 1 and 3 is 1, then SRAM 2 is faulty.
+                            if (compare_1_3 == 1'b1)
+                            begin
+                                        // Output data from SRAM 1.
+                                        rdata_o = rdata1;
+                            end
+                        end
+                end
+
+        end
 end
 
 genvar k;
