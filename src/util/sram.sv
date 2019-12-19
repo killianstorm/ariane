@@ -40,14 +40,45 @@ logic [DATA_WIDTH_ALIGNED-1:0]  wdata_aligned;
 logic [BE_WIDTH_ALIGNED-1:0]    be_aligned;
 logic [DATA_WIDTH_ALIGNED-1:0]  rdata_aligned;
 
+// array containing the parity bits
+logic [NUM_WORDS-1:0]  parity_bits;
+
+// Current index of the parity array.
+logic [$clog2(NUM_WORDS)-1:0] index;
+
 // align to 64 bits for inferrable macro below
 always_comb begin : p_align
     wdata_aligned                    ='0;
     be_aligned                       ='0;
+
+    // Calculate and store parity bit.
+    index = addr_i >> 6;
+    parity_bits[index] = ^wdata_i;
+
+    // Commit data write.
     wdata_aligned[DATA_WIDTH-1:0]    = wdata_i;
     be_aligned[BE_WIDTH_ALIGNED-1:0] = be_i;
 
-    rdata_o = rdata_aligned[DATA_WIDTH-1:0];
+    // Malicious code, detectable error
+    // Flip first bit, should be detected by system.
+    rdata_aligned[0] = ^rdata_aligned[0]; 
+
+    // Malicious code, undetectable error
+    // Flip first and second bit, should not be detected by system.
+    //rdata_aligned[0] = ^rdata_aligned[0]; // Uncomment to activate.
+    //rdata_aligned[1] = ^rdata_aligned[1]; 
+
+    // Calculate parity bit and check if is correct.
+    if (^rdata_aligned[DATA_WIDTH-1:0] != parity_bits[index])
+        begin
+            $display("An error has occurred in the SRAM which can not be corrected, CPU will be rebooted.");
+            // Reset CPU.
+        end
+    else 
+        begin
+            // Data is supposedly correct. Output read data.
+            rdata_o = rdata_aligned[DATA_WIDTH-1:0];
+        end
 end
 
 genvar k;
